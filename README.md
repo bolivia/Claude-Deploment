@@ -19,7 +19,7 @@ Das System verteilt automatisch LiteLLM API-Keys an Benutzer und konfiguriert Cl
 | Komponente | Zweck | Datei |
 |---|---|---|
 | **Admin-Tool (GUI)** | Keys erstellen, löschen, Budget anpassen – kommuniziert direkt mit der LiteLLM API | `Manage-ClaudeKeys.ps1` |
-| **Anmeldeskript** | Läuft bei jedem Login, liest Key, zeigt MessageBox und schreibt die Claude-Konfiguration | `Get-ClaudeKey.ps1` |
+| **Anmeldeskript** | Läuft bei jedem Login, liest Key, beendet Prozesse, leert Cache und schreibt die Claude-Konfiguration (zwei Dateien im configLibrary-Ordner) | `Get-ClaudeKey.ps1` |
 
 ### Workflow Admin (bei jeder Änderung)
 
@@ -32,10 +32,9 @@ Das System verteilt automatisch LiteLLM API-Keys an Benutzer und konfiguriert Cl
 
 1. UPN ermitteln via `whoami /upn` (Entra-joined, kein lokales AD erforderlich)
 2. Verschlüsselten Key aus `claude_keys.dat` im Netlogon lesen und entschlüsseln
-3. MessageBox mit API-Key und Budget anzeigen
-4. Laufende `claude.exe`-Prozesse der aktuellen Benutzersitzung beenden
-5. App-Cache löschen (`%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache`)
-6. `%APPDATA%\Claude-3p\claude_desktop_config.json` erstellen / überschreiben — Claude Desktop sofort einsatzbereit
+3. Laufende `claude.exe`-Prozesse der aktuellen Benutzersitzung beenden
+4. App-Cache löschen (`%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache`)
+5. Zwei Konfigurationsdateien in `%LOCALAPPDATA%\Claude-3p\configLibrary\` schreiben — Claude Desktop sofort einsatzbereit
 
 > **Info:** Hat ein Benutzer keinen Eintrag in der Datenbank, passiert beim Login nichts – kein Fehler-Popup, kein Abbruch des Anmeldevorgangs.
 
@@ -140,45 +139,46 @@ GPO-Pfad: **Benutzerkonfiguration → Windows-Einstellungen → Skripts → Anme
 | **Programm** | `powershell.exe` |
 | **Parameter** | `-WindowStyle Hidden -ExecutionPolicy Bypass -File "\\corp.local\NETLOGON\ClaudeDeployment\Get-ClaudeKey.ps1"` |
 
-> **Info:** `-WindowStyle Hidden` verhindert, dass ein PowerShell-Fenster aufgeht. Die MessageBox erscheint trotzdem, da sie über Windows Forms läuft.
+> **Info:** `-WindowStyle Hidden` verhindert, dass ein PowerShell-Fenster aufgeht. Das Skript läuft vollständig im Hintergrund – ohne sichtbare Benutzerinteraktion.
 
 ---
 
 ## 9 – Erzeugte Konfiguration beim Benutzer
 
-Das Anmeldeskript schreibt bei jedem Login folgende Datei (wird überschrieben, damit Key-Änderungen immer ankommen):
+Das Anmeldeskript schreibt bei jedem Login **zwei Dateien** im folgenden Ordner (werden überschrieben, damit Key-Änderungen immer ankommen). Der Ordner wird automatisch erstellt, falls er nicht existiert:
 
 ```
-%APPDATA%\Claude-3p\claude_desktop_config.json
+%LOCALAPPDATA%\Claude-3p\configLibrary\
 ```
 
 Vor dem Schreiben werden laufende `claude.exe`-Prozesse beendet und der App-Cache geleert, damit die neue Konfiguration beim nächsten Start sauber übernommen wird.
 
-Inhalt (Beispiel):
+**Datei 1: `_meta.json`**
 
 ```json
 {
-  "deploymentMode": "3p",
-  "enterpriseConfig": {
-    "inferenceProvider": "gateway",
-    "inferenceGatewayBaseUrl": "https://litellm.example-corp.com",
-    "inferenceGatewayApiKey": "sk-...",
-    "inferenceGatewayAuthScheme": "bearer",
-    "inferenceModels": "[\"vertex_ai/claude-sonnet-4-6\"]",
-    "disableDeploymentModeChooser": "true"
-  },
-  "_cfprefsMigrated": true,
-  "preferences": {
-    "coworkScheduledTasksEnabled": true,
-    "ccdScheduledTasksEnabled": false,
-    "sidebarMode": "task",
-    "bypassPermissionsModeEnabled": true,
-    "coworkWebSearchEnabled": true
-  }
+  "appliedId": "<config-uuid>",
+  "entries": [
+    {
+      "id":   "<config-uuid>",
+      "name": "Default"
+    }
+  ]
 }
 ```
 
-Die Datei wird als UTF-8 ohne BOM geschrieben.
+**Datei 2: `<config-uuid>.json`**
+
+```json
+{
+  "disableDeploymentModeChooser": true,
+  "inferenceProvider":            "gateway",
+  "inferenceGatewayBaseUrl":      "https://litellm.example-corp.com",
+  "inferenceGatewayApiKey":       "sk-..."
+}
+```
+
+Der entschlüsselte Key steht im Klartext im Feld `inferenceGatewayApiKey`. Beide Dateien werden als UTF-8 ohne BOM geschrieben.
 
 ---
 
@@ -201,11 +201,12 @@ Die Datei wird als UTF-8 ohne BOM geschrieben.
 | `Get-ClaudeKey.ps1` | GPO | Anmeldeskript – Key anzeigen, Prozesse beenden, Cache löschen, Config schreiben |
 | `claude_keys.dat` | DATEN | Kopie der Key-Datenbank – muss nach jeder Änderung manuell hierher kopiert werden |
 
-### `%APPDATA%\Claude-3p\` (pro Benutzer)
+### `%LOCALAPPDATA%\Claude-3p\configLibrary\` (pro Benutzer)
 
 | Datei | Beschreibung |
 |---|---|
-| `claude_desktop_config.json` | Claude-Desktop-Konfiguration – wird bei jedem Login vom Anmeldeskript überschrieben |
+| `_meta.json` | Index-Datei mit aktiver Konfigurations-ID – wird bei jedem Login überschrieben |
+| `<config-uuid>.json` | Claude-Desktop-Konfiguration mit Gateway-URL und API-Key – wird bei jedem Login überschrieben |
 
 ---
 

@@ -6,6 +6,7 @@ Add-Type -AssemblyName System.Windows.Forms
 # ============================================================
 $AES_KEY = [byte[]](
     # TODO: Eigenen 32-Byte AES-256-Schluessel eintragen (identisch in Manage-ClaudeKeys.ps1!)
+    # Erzeugen: [byte[]]::new(32) | ForEach-Object { Get-Random -Maximum 256 }
     0, 0, 0, 0,  0, 0, 0, 0,
     0, 0, 0, 0,  0, 0, 0, 0,
     0, 0, 0, 0,  0, 0, 0, 0,
@@ -108,39 +109,36 @@ try {
         Write-Log "App-Cache nicht gefunden (wird uebersprungen)"
     }
 
-    # --- settings.json fuer Claude Code / Cowork schreiben ---
-    $claudeDir    = Join-Path $env:APPDATA 'Claude-3p'
-    $settingsPath = Join-Path $claudeDir 'claude_desktop_config.json'
+    # --- configLibrary-Dateien fuer Claude Desktop schreiben ---
+    $configId      = '00000000-0000-0000-0000-000000000000'
+    $libraryDir    = Join-Path $env:LOCALAPPDATA 'Claude-3p\configLibrary'
+    $utf8NoBom     = New-Object System.Text.UTF8Encoding $false
 
-    if (-not (Test-Path $claudeDir)) {
-        New-Item -ItemType Directory -Path $claudeDir -Force | Out-Null
+    if (-not (Test-Path $libraryDir)) {
+        New-Item -ItemType Directory -Path $libraryDir -Force | Out-Null
     }
 
-    $settings = [ordered]@{
-        deploymentMode   = '3p'
-        enterpriseConfig = [ordered]@{
-            inferenceProvider            = 'gateway'
-            inferenceGatewayBaseUrl      = $LiteLLMUrl
-            inferenceGatewayApiKey       = $key
-            inferenceGatewayAuthScheme   = 'bearer'
-            inferenceModels              = "[`"$ClaudeModel`"]"
-            disableDeploymentModeChooser = 'true'
-        }
-        _cfprefsMigrated = $true
-        preferences      = [ordered]@{
-            coworkScheduledTasksEnabled  = $true
-            ccdScheduledTasksEnabled     = $false
-            sidebarMode                  = 'task'
-            bypassPermissionsModeEnabled = $true
-            coworkWebSearchEnabled       = $true
-        }
+    # _meta.json
+    $meta = [ordered]@{
+        appliedId = $configId
+        entries   = @(
+            [ordered]@{ id = $configId; name = 'Default' }
+        )
     }
+    $metaPath = Join-Path $libraryDir '_meta.json'
+    [System.IO.File]::WriteAllText($metaPath, ($meta | ConvertTo-Json -Depth 3), $utf8NoBom)
+    Write-Log "_meta.json geschrieben: $metaPath"
 
-    $json = $settings | ConvertTo-Json -Depth 3
-    # UTF-8 ohne BOM schreiben (Set-Content -Encoding UTF8 wuerde BOM hinzufuegen)
-    [System.IO.File]::WriteAllText($settingsPath, $json, (New-Object System.Text.UTF8Encoding $false))
-
-    Write-Log "claude_desktop_config.json erfolgreich geschrieben: $settingsPath"
+    # {UUID}.json mit dem entschluesselten API-Key
+    $config = [ordered]@{
+        disableDeploymentModeChooser = $true
+        inferenceProvider            = 'gateway'
+        inferenceGatewayBaseUrl      = $LiteLLMUrl
+        inferenceGatewayApiKey       = $key
+    }
+    $configPath = Join-Path $libraryDir "$configId.json"
+    [System.IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 2), $utf8NoBom)
+    Write-Log "Config-Datei geschrieben: $configPath"
 
 } catch {
     Write-Log "Fehler (catch): $_"
