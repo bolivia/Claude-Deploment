@@ -1,37 +1,41 @@
-# Claude Cowork – Deployment-Anleitung
+# Claude Deployment – Deployment-Anleitung
 
-> IT-Dokumentation: LiteLLM Key-Verwaltung und automatische Cowork-Konfiguration per Anmeldeskript
+> IT-Dokumentation: LiteLLM Key-Verwaltung und automatische Claude-Konfiguration per Anmeldeskript
+>
+> [https://ddp-gruppe.de/](https://ddp-gruppe.de/)
 
 | | Pfad |
 |---|---|
 | **Admin-Tool & Arbeitsdatei** | `\\fileserver\shares\Claude Deployment\` |
-| **Deployment-Ziel (Netlogon)** | `\\corp.local\netlogon\login-scripts\ClaudeDeployment\` |
-| **LiteLLM Gateway** | `https://litellm.ai.example-corp.de` |
+| **Deployment-Ziel (Netlogon)** | `\\corp.local\NETLOGON\ClaudeDeployment\` |
+| **LiteLLM Gateway** | `https://litellm.example-corp.com` |
 
 ---
 
 ## 1 – Überblick & Funktionsweise
 
-Das System verteilt automatisch LiteLLM API-Keys an Benutzer und konfiguriert Claude Code / Cowork ohne manuellen Eingriff. Es besteht aus zwei Komponenten:
+Das System verteilt automatisch LiteLLM API-Keys an Benutzer und konfiguriert Claude Desktop ohne manuellen Eingriff. Es besteht aus zwei Komponenten:
 
 | Komponente | Zweck | Datei |
 |---|---|---|
 | **Admin-Tool (GUI)** | Keys erstellen, löschen, Budget anpassen – kommuniziert direkt mit der LiteLLM API | `Manage-ClaudeKeys.ps1` |
-| **Anmeldeskript** | Läuft bei jedem Login, liest Key, zeigt MessageBox und schreibt die Cowork-Konfiguration | `Get-ClaudeKey.ps1` |
+| **Anmeldeskript** | Läuft bei jedem Login, liest Key, zeigt MessageBox und schreibt die Claude-Konfiguration | `Get-ClaudeKey.ps1` |
 
 ### Workflow Admin (bei jeder Änderung)
 
 1. Admin-Tool starten, Keys bearbeiten (erstellen / löschen / Budget)
 2. Beim Schließen erinnert das Tool: **claude_keys.dat manuell vom Dateiserver ins Netlogon kopieren**
 3. Quelle: `\\fileserver\shares\Claude Deployment\claude_keys.dat`
-4. Ziel: `\\corp.local\netlogon\login-scripts\ClaudeDeployment\claude_keys.dat`
+4. Ziel: `\\corp.local\NETLOGON\ClaudeDeployment\claude_keys.dat`
 
 ### Was passiert beim Benutzer-Login
 
 1. UPN ermitteln via `whoami /upn` (Entra-joined, kein lokales AD erforderlich)
 2. Verschlüsselten Key aus `claude_keys.dat` im Netlogon lesen und entschlüsseln
 3. MessageBox mit API-Key und Budget anzeigen
-4. `%USERPROFILE%\.claude\settings.json` erstellen / überschreiben — Cowork sofort einsatzbereit
+4. Laufende `claude.exe`-Prozesse der aktuellen Benutzersitzung beenden
+5. App-Cache löschen (`%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache`)
+6. `%APPDATA%\Claude-3p\claude_desktop_config.json` erstellen / überschreiben — Claude Desktop sofort einsatzbereit
 
 > **Info:** Hat ein Benutzer keinen Eintrag in der Datenbank, passiert beim Login nichts – kein Fehler-Popup, kein Abbruch des Anmeldevorgangs.
 
@@ -44,12 +48,31 @@ Das System verteilt automatisch LiteLLM API-Keys an Benutzer und konfiguriert Cl
 | **Betriebssystem** | Windows 10 / 11, Microsoft Entra-joined (kein lokales AD erforderlich) |
 | **PowerShell** | Version 5.1 oder neuer (standardmäßig vorhanden) |
 | **Netzwerk (Admin)** | Zugriff auf `\\fileserver\shares\` und Schreibrecht auf `...\ClaudeDeployment\` |
-| **Netzwerk (Client)** | Lesezugriff auf `\\corp.local\netlogon\` (Standard für Domänen-Benutzer) |
-| **Internet (Admin-PC)** | HTTPS-Zugriff auf `https://litellm.ai.example-corp.de` |
+| **Netzwerk (Client)** | Lesezugriff auf `\\corp.local\NETLOGON\` (Standard für Domänen-Benutzer) |
+| **Internet (Admin-PC)** | HTTPS-Zugriff auf die LiteLLM-Gateway-URL |
 
 ---
 
-## 3 – Admin-Tool starten
+## 3 – Erstkonfiguration (vor dem ersten Einsatz)
+
+Die folgenden Werte müssen in beiden Skripten auf die eigene Umgebung angepasst werden:
+
+| Skript | Variable | Beschreibung |
+|---|---|---|
+| beide | `$AES_KEY` | 32 zufällige Bytes (AES-256) – in beiden Skripten **identisch** |
+| `Get-ClaudeKey.ps1` | `$KeyFilePath` | UNC-Pfad zu `claude_keys.dat` im Netlogon |
+| `Get-ClaudeKey.ps1` | `$LiteLLMUrl` | URL des LiteLLM-Gateways |
+| `Manage-ClaudeKeys.ps1` | `$script:DefaultKeyFilePath` | UNC-Pfad zur Arbeitskopie auf dem Dateiserver |
+| `Manage-ClaudeKeys.ps1` | `$script:DeployTargetPath` | UNC-Pfad zum Netlogon-Ziel |
+| `Manage-ClaudeKeys.ps1` | `$script:LiteLLMUrl` | URL des LiteLLM-Gateways |
+| `Manage-ClaudeKeys.ps1` | `$script:LiteLLMMaster` | LiteLLM Master Key |
+| `Manage-ClaudeKeys.ps1` | `$script:LiteLLMTeamId` | LiteLLM Team-ID (optional) |
+
+> **AES-Schlüssel erzeugen** (PowerShell): `[byte[]]::new(32) | ForEach-Object { Get-Random -Maximum 256 }`
+
+---
+
+## 4 – Admin-Tool starten
 
 ```
 \\fileserver\shares\Claude Deployment\Start-KeyManager.cmd
@@ -62,15 +85,15 @@ Doppelklick auf `Start-KeyManager.cmd` genügt. Die Datei umgeht automatisch die
 > **Wichtig nach jeder Änderung:** Das Tool erinnert beim Schließen daran, die Datei manuell ins Netlogon zu kopieren. Erst danach erhalten Benutzer beim Login den aktualisierten Key.
 >
 > - Von: `\\fileserver\shares\Claude Deployment\claude_keys.dat`
-> - Nach: `\\corp.local\netlogon\login-scripts\ClaudeDeployment\claude_keys.dat`
+> - Nach: `\\corp.local\NETLOGON\ClaudeDeployment\claude_keys.dat`
 
 ---
 
-## 4 – Neuen Benutzer anlegen
+## 5 – Neuen Benutzer anlegen
 
-1. Admin-Tool starten (siehe Abschnitt 3)
+1. Admin-Tool starten (siehe Abschnitt 4)
 2. Klick auf **[+ Hinzufügen]**
-3. UPN des Benutzers eingeben, z. B. `max.mustermann@example-corp.de`
+3. UPN des Benutzers eingeben, z. B. `max.mustermann@example-corp.com`
 4. Budget in USD festlegen (Standard: 50,00 USD)
 5. Klick auf **[Erstellen]**
 
@@ -78,15 +101,15 @@ Das Tool führt danach automatisch folgende Schritte aus:
 
 | Aktion | Details |
 |---|---|
-| LiteLLM API-Aufruf | `POST /key/generate` mit UPN als `user_id`, Budget und `key_alias = "ClaudeDeployTool_<UPN>"` |
+| LiteLLM API-Aufruf | `POST /key/generate` mit `key_alias = "ClaudeDeployTool_<UPN>"`, Budget und `team_id` |
 | Key speichern | Key wird AES-256-verschlüsselt in `claude_keys.dat` gespeichert |
 | Bestätigung | Der erstellte Key wird zur Kontrolle einmalig im Klartext angezeigt |
 
-> **Hinweis:** Beim nächsten Login des Benutzers erhält er den Key automatisch per MessageBox und Cowork wird konfiguriert – **sofern die Datei bereits ins Netlogon kopiert wurde**.
+> **Hinweis:** Beim nächsten Login des Benutzers erhält er den Key automatisch per MessageBox und Claude wird konfiguriert – **sofern die Datei bereits ins Netlogon kopiert wurde**.
 
 ---
 
-## 5 – Budget eines Benutzers anpassen
+## 6 – Budget eines Benutzers anpassen
 
 1. Benutzer in der Liste auswählen (Klick auf die Zeile)
 2. Klick auf **[Budget anpassen]**
@@ -96,7 +119,7 @@ Das Budget wird sofort per `POST /key/update` in LiteLLM aktualisiert und gleich
 
 ---
 
-## 6 – Benutzer und Key löschen
+## 7 – Benutzer und Key löschen
 
 1. Benutzer in der Liste auswählen
 2. Klick auf **[Löschen]** oder **Entf**-Taste drücken
@@ -108,47 +131,58 @@ Das Tool ruft `POST /key/delete` auf – der Key ist damit sofort ungültig – 
 
 ---
 
-## 7 – Anmeldeskript einbinden (GPO)
+## 8 – Anmeldeskript einbinden (GPO)
 
 GPO-Pfad: **Benutzerkonfiguration → Windows-Einstellungen → Skripts → Anmelden**
 
 | | |
 |---|---|
 | **Programm** | `powershell.exe` |
-| **Parameter** | `-WindowStyle Hidden -ExecutionPolicy Bypass -File "\\corp.local\netlogon\login-scripts\ClaudeDeployment\Get-ClaudeKey.ps1"` |
+| **Parameter** | `-WindowStyle Hidden -ExecutionPolicy Bypass -File "\\corp.local\NETLOGON\ClaudeDeployment\Get-ClaudeKey.ps1"` |
 
 > **Info:** `-WindowStyle Hidden` verhindert, dass ein PowerShell-Fenster aufgeht. Die MessageBox erscheint trotzdem, da sie über Windows Forms läuft.
 
 ---
 
-## 8 – Erzeugte Konfiguration beim Benutzer
+## 9 – Erzeugte Konfiguration beim Benutzer
 
 Das Anmeldeskript schreibt bei jedem Login folgende Datei (wird überschrieben, damit Key-Änderungen immer ankommen):
 
 ```
-%USERPROFILE%\.claude\settings.json
+%APPDATA%\Claude-3p\claude_desktop_config.json
 ```
+
+Vor dem Schreiben werden laufende `claude.exe`-Prozesse beendet und der App-Cache geleert, damit die neue Konfiguration beim nächsten Start sauber übernommen wird.
 
 Inhalt (Beispiel):
 
 ```json
 {
-  "inferenceProvider":                 "gateway",
-  "inferenceGatewayBaseUrl":           "https://litellm.ai.example-corp.de",
-  "inferenceGatewayApiKey":            "sk-...",
-  "model":                             "vertex_ai/claude-sonnet-4-6",
-  "effortLevel":                       "medium",
-  "autoUpdatesChannel":                "latest",
-  "skipDangerousModePermissionPrompt": true,
-  "enabledPlugins": {
-    "frontend-design@claude-plugins-official": true
+  "deploymentMode": "3p",
+  "enterpriseConfig": {
+    "inferenceProvider": "gateway",
+    "inferenceGatewayBaseUrl": "https://litellm.example-corp.com",
+    "inferenceGatewayApiKey": "sk-...",
+    "inferenceGatewayAuthScheme": "bearer",
+    "inferenceModels": "[\"vertex_ai/claude-sonnet-4-6\"]",
+    "disableDeploymentModeChooser": "true"
+  },
+  "_cfprefsMigrated": true,
+  "preferences": {
+    "coworkScheduledTasksEnabled": true,
+    "ccdScheduledTasksEnabled": false,
+    "sidebarMode": "task",
+    "bypassPermissionsModeEnabled": true,
+    "coworkWebSearchEnabled": true
   }
 }
 ```
 
+Die Datei wird als UTF-8 ohne BOM geschrieben.
+
 ---
 
-## 9 – Dateien im Überblick
+## 10 – Dateien im Überblick
 
 ### `\\fileserver\shares\Claude Deployment\`
 
@@ -160,28 +194,28 @@ Inhalt (Beispiel):
 
 ⬇ *nach jeder Änderung manuell kopieren* ⬇
 
-### `\\corp.local\netlogon\login-scripts\ClaudeDeployment\`
+### `\\corp.local\NETLOGON\ClaudeDeployment\`
 
 | Datei | Rolle | Beschreibung |
 |---|---|---|
-| `Get-ClaudeKey.ps1` | GPO | Anmeldeskript – Key anzeigen und settings.json schreiben |
+| `Get-ClaudeKey.ps1` | GPO | Anmeldeskript – Key anzeigen, Prozesse beenden, Cache löschen, Config schreiben |
 | `claude_keys.dat` | DATEN | Kopie der Key-Datenbank – muss nach jeder Änderung manuell hierher kopiert werden |
 
-### `%USERPROFILE%\.claude\` (pro Benutzer)
+### `%APPDATA%\Claude-3p\` (pro Benutzer)
 
 | Datei | Beschreibung |
 |---|---|
-| `settings.json` | Cowork-Konfiguration – wird bei jedem Login vom Anmeldeskript überschrieben |
+| `claude_desktop_config.json` | Claude-Desktop-Konfiguration – wird bei jedem Login vom Anmeldeskript überschrieben |
 
 ---
 
-## 10 – Fehlerbehebung
+## 11 – Fehlerbehebung
 
 | Problem | Ursache | Lösung |
 |---|---|---|
 | **GUI startet nicht** | PowerShell ExecutionPolicy blockiert | Immer `Start-KeyManager.cmd` verwenden, nie `.ps1` direkt |
-| **Authentication Error: Only proxy admin …** | Kein Master Key eingetragen | `Manage-ClaudeKeys.ps1` Zeile 18: LITELLM_MASTER_KEY aus den Hosting-Umgebungsvariablen eintragen |
+| **Authentication Error: Only proxy admin …** | Kein Master Key eingetragen | `Manage-ClaudeKeys.ps1`: `$script:LiteLLMMaster` mit dem LiteLLM-Master-Key befüllen |
 | **Kein Popup beim Login** | UPN nicht in `claude_keys.dat` | Benutzer über **+ Hinzufügen** im Admin-Tool anlegen |
 | **Änderungen kommen nicht an** | `claude_keys.dat` nicht ins Netlogon kopiert | Datei manuell vom Dateiserver ins Netlogon kopieren |
-| **Cowork verbindet sich nicht** | `settings.json` fehlt oder veraltet | Benutzer ab- und wieder anmelden |
-| **Datei nicht erreichbar** | Netzwerkproblem / Netlogon-Share nicht verfügbar | Verbindung zu `\\corp.local\netlogon\` prüfen. Skript bricht still ab – kein Einfluss auf Login |
+| **Claude Desktop startet nicht / ignoriert Config** | Alter Prozess oder Cache blockiert | Abmelden und neu anmelden – Skript beendet Prozesse und leert Cache automatisch |
+| **Datei nicht erreichbar** | Netzwerkproblem / Netlogon-Share nicht verfügbar | Verbindung zu `\\corp.local\NETLOGON\` prüfen. Skript bricht still ab – kein Einfluss auf Login |

@@ -7,17 +7,18 @@ Add-Type -AssemblyName System.Drawing
 # KONFIGURATION
 # ============================================================
 $AES_KEY = [byte[]](
-    # TODO: Eigenen 32-Byte AES-256 Schluessel hier eintragen (identisch in Get-ClaudeKey.ps1!)
+    # TODO: Eigenen 32-Byte AES-256-Schluessel eintragen (identisch in Get-ClaudeKey.ps1!)
     0, 0, 0, 0,  0, 0, 0, 0,
     0, 0, 0, 0,  0, 0, 0, 0,
     0, 0, 0, 0,  0, 0, 0, 0,
     0, 0, 0, 0,  0, 0, 0, 0
-)
+)  # 32 Byte — identisch in Get-ClaudeKey.ps1!
 
 $script:DefaultKeyFilePath = "\\fileserver\shares\Claude Deployment\claude_keys.dat"
-$script:DeployTargetPath   = "\\dc01\NETLOGON\login-scripts\ClaudeDeployment\claude_keys.dat"
-$script:LiteLLMUrl         = "https://litellm.ai.example-corp.de"
-$script:LiteLLMMaster      = "sk-YOUR_MASTER_KEY_HERE"
+$script:DeployTargetPath   = "\\corp.local\NETLOGON\ClaudeDeployment\claude_keys.dat"
+$script:LiteLLMUrl         = "https://litellm.example-corp.com"
+$script:LiteLLMMaster      = "sk-YOUR_LITELLM_MASTER_KEY_HERE"
+$script:LiteLLMTeamId      = "YOUR_LITELLM_TEAM_ID_HERE"
 $script:DefaultBudget      = 50.0
 # ============================================================
 
@@ -528,7 +529,9 @@ $btnAdd.Add_Click({
 
     try {
         $resp   = Invoke-LiteLLM '/key/generate' @{
-            user_id = $upn; key_alias = "ClaudeDeployTool_$upn"; max_budget = $budget
+            key_alias  = "ClaudeDeployTool_$upn"
+            max_budget = $budget
+            team_id    = $script:LiteLLMTeamId
         }
         $newKey = $resp.key
     } catch { Show-Err "LiteLLM API-Fehler:`n$_"; return }

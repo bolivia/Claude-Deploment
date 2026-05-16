@@ -5,15 +5,15 @@ Add-Type -AssemblyName System.Windows.Forms
 # KONFIGURATION — muss identisch mit Manage-ClaudeKeys.ps1 sein
 # ============================================================
 $AES_KEY = [byte[]](
-    # TODO: Eigenen 32-Byte AES-256 Schluessel hier eintragen
+    # TODO: Eigenen 32-Byte AES-256-Schluessel eintragen (identisch in Manage-ClaudeKeys.ps1!)
     0, 0, 0, 0,  0, 0, 0, 0,
     0, 0, 0, 0,  0, 0, 0, 0,
     0, 0, 0, 0,  0, 0, 0, 0,
     0, 0, 0, 0,  0, 0, 0, 0
 )
 
-$KeyFilePath  = "\\dc01\NETLOGON\login-scripts\ClaudeDeployment\claude_keys.dat"
-$LiteLLMUrl   = "https://litellm.ai.example-corp.de"
+$KeyFilePath  = "\\corp.local\NETLOGON\ClaudeDeployment\claude_keys.dat"
+$LiteLLMUrl   = "https://litellm.example-corp.com"
 $ClaudeModel  = "vertex_ai/claude-sonnet-4-6"
 # ============================================================
 
@@ -87,39 +87,60 @@ try {
         exit 0
     }
 
+    # --- Claude-Prozesse im Userkontext beenden ---
+    $currentSession = (Get-Process -Id $PID).SessionId
+    $claudeProcs = Get-Process -Name 'claude' -ErrorAction SilentlyContinue |
+                   Where-Object { $_.SessionId -eq $currentSession }
+    if ($claudeProcs) {
+        $claudeProcs | Stop-Process -Force -ErrorAction SilentlyContinue
+        Write-Log "$($claudeProcs.Count) claude.exe-Prozess(e) beendet"
+        Start-Sleep -Seconds 1
+    } else {
+        Write-Log "Keine claude.exe-Prozesse gefunden"
+    }
+
+    # --- App-Cache loeschen ---
+    $cacheDir = Join-Path $env:LOCALAPPDATA 'Packages\Claude_pzs8sxrjxfjjc\LocalCache'
+    if (Test-Path $cacheDir) {
+        Remove-Item -Path $cacheDir -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Log "App-Cache geloescht: $cacheDir"
+    } else {
+        Write-Log "App-Cache nicht gefunden (wird uebersprungen)"
+    }
+
     # --- settings.json fuer Claude Code / Cowork schreiben ---
-    $claudeDir    = Join-Path $env:USERPROFILE '.claude'
-    $settingsPath = Join-Path $claudeDir 'settings.json'
+    $claudeDir    = Join-Path $env:APPDATA 'Claude-3p'
+    $settingsPath = Join-Path $claudeDir 'claude_desktop_config.json'
 
     if (-not (Test-Path $claudeDir)) {
         New-Item -ItemType Directory -Path $claudeDir -Force | Out-Null
     }
 
     $settings = [ordered]@{
-        inferenceProvider                = 'gateway'
-        inferenceGatewayBaseUrl          = $LiteLLMUrl
-        inferenceGatewayApiKey           = $key
-        model                            = $ClaudeModel
-        extraKnownMarketplaces           = [ordered]@{
-            'claude-plugins-official' = [ordered]@{
-                source = [ordered]@{
-                    source = 'github'
-                    repo   = 'anthropics/claude-plugins-official'
-                }
-            }
+        deploymentMode   = '3p'
+        enterpriseConfig = [ordered]@{
+            inferenceProvider            = 'gateway'
+            inferenceGatewayBaseUrl      = $LiteLLMUrl
+            inferenceGatewayApiKey       = $key
+            inferenceGatewayAuthScheme   = 'bearer'
+            inferenceModels              = "[`"$ClaudeModel`"]"
+            disableDeploymentModeChooser = 'true'
         }
-        effortLevel                      = 'medium'
-        autoUpdatesChannel               = 'latest'
-        skipDangerousModePermissionPrompt = $true
-        enabledPlugins                   = [ordered]@{
-            'frontend-design@claude-plugins-official' = $true
+        _cfprefsMigrated = $true
+        preferences      = [ordered]@{
+            coworkScheduledTasksEnabled  = $true
+            ccdScheduledTasksEnabled     = $false
+            sidebarMode                  = 'task'
+            bypassPermissionsModeEnabled = $true
+            coworkWebSearchEnabled       = $true
         }
     }
 
-    $settings | ConvertTo-Json -Depth 6 |
-        Set-Content -Path $settingsPath -Encoding UTF8 -Force
+    $json = $settings | ConvertTo-Json -Depth 3
+    # UTF-8 ohne BOM schreiben (Set-Content -Encoding UTF8 wuerde BOM hinzufuegen)
+    [System.IO.File]::WriteAllText($settingsPath, $json, (New-Object System.Text.UTF8Encoding $false))
 
-    Write-Log "settings.json erfolgreich geschrieben: $settingsPath"
+    Write-Log "claude_desktop_config.json erfolgreich geschrieben: $settingsPath"
 
 } catch {
     Write-Log "Fehler (catch): $_"
