@@ -110,35 +110,42 @@ try {
     }
 
     # --- configLibrary-Dateien fuer Claude Desktop schreiben ---
-    $configId      = '00000000-0000-0000-0000-000000000000'
-    $libraryDir    = Join-Path $env:LOCALAPPDATA 'Claude-3p\configLibrary'
-    $utf8NoBom     = New-Object System.Text.UTF8Encoding $false
+    # Beide Pfade werden identisch beschrieben (LocalAppData + AppData/Roaming)
+    $configId  = '00000000-0000-0000-0000-000000000000'
+    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
 
-    if (-not (Test-Path $libraryDir)) {
-        New-Item -ItemType Directory -Path $libraryDir -Force | Out-Null
-    }
-
-    # _meta.json
     $meta = [ordered]@{
         appliedId = $configId
         entries   = @(
             [ordered]@{ id = $configId; name = 'Default' }
         )
     }
-    $metaPath = Join-Path $libraryDir '_meta.json'
-    [System.IO.File]::WriteAllText($metaPath, ($meta | ConvertTo-Json -Depth 3), $utf8NoBom)
-    Write-Log "_meta.json geschrieben: $metaPath"
-
-    # {UUID}.json mit dem entschluesselten API-Key
     $config = [ordered]@{
         disableDeploymentModeChooser = $true
         inferenceProvider            = 'gateway'
         inferenceGatewayBaseUrl      = $LiteLLMUrl
         inferenceGatewayApiKey       = $key
     }
-    $configPath = Join-Path $libraryDir "$configId.json"
-    [System.IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json -Depth 2), $utf8NoBom)
-    Write-Log "Config-Datei geschrieben: $configPath"
+    $metaJson   = $meta   | ConvertTo-Json -Depth 3
+    $configJson = $config | ConvertTo-Json -Depth 2
+
+    $libraryDirs = @(
+        Join-Path $env:LOCALAPPDATA 'Claude-3p\configLibrary'
+        Join-Path $env:APPDATA      'Claude-3p\configLibrary'
+    )
+
+    foreach ($libraryDir in $libraryDirs) {
+        if (-not (Test-Path $libraryDir)) {
+            New-Item -ItemType Directory -Path $libraryDir -Force | Out-Null
+        }
+
+        $metaPath   = Join-Path $libraryDir '_meta.json'
+        $configPath = Join-Path $libraryDir "$configId.json"
+
+        [System.IO.File]::WriteAllText($metaPath,   $metaJson,   $utf8NoBom)
+        [System.IO.File]::WriteAllText($configPath, $configJson, $utf8NoBom)
+        Write-Log "configLibrary geschrieben: $libraryDir"
+    }
 
 } catch {
     Write-Log "Fehler (catch): $_"
