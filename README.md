@@ -1,8 +1,6 @@
 # Claude Deployment – Deployment-Anleitung
 
 > IT-Dokumentation: LiteLLM Key-Verwaltung und automatische Claude-Konfiguration per Anmeldeskript
->
-> [https://ddp-gruppe.de/](https://ddp-gruppe.de/)
 
 | | Pfad |
 |---|---|
@@ -33,8 +31,10 @@ Das System verteilt automatisch LiteLLM API-Keys an Benutzer und konfiguriert Cl
 1. UPN ermitteln via `whoami /upn` (Entra-joined, kein lokales AD erforderlich)
 2. Verschlüsselten Key aus `claude_keys.dat` im Netlogon lesen und entschlüsseln
 3. Laufende `claude.exe`-Prozesse der aktuellen Benutzersitzung beenden
-4. App-Cache löschen (`%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache`)
-5. Zwei Konfigurationsdateien in `%LOCALAPPDATA%\Claude-3p\configLibrary\` schreiben — Claude Desktop sofort einsatzbereit
+4. App-Cache löschen (`%LOCALAPPDATA%\Packages\Claude_XXXXXXXXXXXXXXXXX\LocalCache`)
+5. Zwei Konfigurationsdateien in beide configLibrary-Ordner schreiben — Claude Desktop sofort einsatzbereit
+   - `%LOCALAPPDATA%\Claude-3p\configLibrary\`
+   - `%APPDATA%\Claude-3p\configLibrary\`
 
 > **Info:** Hat ein Benutzer keinen Eintrag in der Datenbank, passiert beim Login nichts – kein Fehler-Popup, kein Abbruch des Anmeldevorgangs.
 
@@ -145,13 +145,14 @@ GPO-Pfad: **Benutzerkonfiguration → Windows-Einstellungen → Skripts → Anme
 
 ## 9 – Erzeugte Konfiguration beim Benutzer
 
-Das Anmeldeskript schreibt bei jedem Login **zwei Dateien** im folgenden Ordner (werden überschrieben, damit Key-Änderungen immer ankommen). Der Ordner wird automatisch erstellt, falls er nicht existiert:
+Das Anmeldeskript schreibt bei jedem Login **zwei Dateien** in beide folgenden Ordner (werden überschrieben, damit Key-Änderungen immer ankommen). Die Ordner werden automatisch erstellt, falls sie nicht existieren:
 
 ```
 %LOCALAPPDATA%\Claude-3p\configLibrary\
+%APPDATA%\Claude-3p\configLibrary\
 ```
 
-Vor dem Schreiben werden laufende `claude.exe`-Prozesse beendet und der App-Cache geleert, damit die neue Konfiguration beim nächsten Start sauber übernommen wird.
+Beide Pfade erhalten identische Dateien. Vor dem Schreiben werden laufende `claude.exe`-Prozesse beendet und der App-Cache geleert, damit die neue Konfiguration beim nächsten Start sauber übernommen wird.
 
 **Datei 1: `_meta.json`**
 
@@ -201,7 +202,9 @@ Der entschlüsselte Key steht im Klartext im Feld `inferenceGatewayApiKey`. Beid
 | `Get-ClaudeKey.ps1` | GPO | Anmeldeskript – Key anzeigen, Prozesse beenden, Cache löschen, Config schreiben |
 | `claude_keys.dat` | DATEN | Kopie der Key-Datenbank – muss nach jeder Änderung manuell hierher kopiert werden |
 
-### `%LOCALAPPDATA%\Claude-3p\configLibrary\` (pro Benutzer)
+### `%LOCALAPPDATA%\Claude-3p\configLibrary\` und `%APPDATA%\Claude-3p\configLibrary\` (pro Benutzer)
+
+Beide Pfade erhalten bei jedem Login identische Dateien:
 
 | Datei | Beschreibung |
 |---|---|

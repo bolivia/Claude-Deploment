@@ -6,16 +6,16 @@ Add-Type -AssemblyName System.Windows.Forms
 # ============================================================
 $AES_KEY = [byte[]](
     # TODO: Eigenen 32-Byte AES-256-Schluessel eintragen (identisch in Manage-ClaudeKeys.ps1!)
-    # Erzeugen: [byte[]]::new(32) | ForEach-Object { Get-Random -Maximum 256 }
+    # Erzeugen: (1..32 | ForEach-Object { Get-Random -Maximum 256 }) -join ', '
     0, 0, 0, 0,  0, 0, 0, 0,
     0, 0, 0, 0,  0, 0, 0, 0,
     0, 0, 0, 0,  0, 0, 0, 0,
     0, 0, 0, 0,  0, 0, 0, 0
 )
 
-$KeyFilePath  = "\\corp.local\NETLOGON\ClaudeDeployment\claude_keys.dat"
-$LiteLLMUrl   = "https://litellm.example-corp.com"
-$ClaudeModel  = "vertex_ai/claude-sonnet-4-6"
+$KeyFilePath  = "\\FIRMA.LOCAL\NETLOGON\ClaudeDeployment\claude_keys.dat"
+$LiteLLMUrl   = "https://litellm.example-company.com"
+$ClaudeModel  = "ANBIETER/MODELL-NAME"
 # ============================================================
 
 function Decrypt-Key([string]$Base64) {
@@ -101,7 +101,7 @@ try {
     }
 
     # --- App-Cache loeschen ---
-    $cacheDir = Join-Path $env:LOCALAPPDATA 'Packages\Claude_pzs8sxrjxfjjc\LocalCache'
+    $cacheDir = Join-Path $env:LOCALAPPDATA 'Packages\Claude_XXXXXXXXXXXXXXXXX\LocalCache'
     if (Test-Path $cacheDir) {
         Remove-Item -Path $cacheDir -Recurse -Force -ErrorAction SilentlyContinue
         Write-Log "App-Cache geloescht: $cacheDir"
@@ -110,7 +110,6 @@ try {
     }
 
     # --- configLibrary-Dateien fuer Claude Desktop schreiben ---
-    # Beide Pfade werden identisch beschrieben (LocalAppData + AppData/Roaming)
     $configId  = '00000000-0000-0000-0000-000000000000'
     $utf8NoBom = New-Object System.Text.UTF8Encoding $false
 
@@ -120,31 +119,30 @@ try {
             [ordered]@{ id = $configId; name = 'Default' }
         )
     }
+    $metaJson = $meta | ConvertTo-Json -Depth 3
+
     $config = [ordered]@{
         disableDeploymentModeChooser = $true
         inferenceProvider            = 'gateway'
         inferenceGatewayBaseUrl      = $LiteLLMUrl
         inferenceGatewayApiKey       = $key
     }
-    $metaJson   = $meta   | ConvertTo-Json -Depth 3
     $configJson = $config | ConvertTo-Json -Depth 2
 
-    $libraryDirs = @(
-        Join-Path $env:LOCALAPPDATA 'Claude-3p\configLibrary'
-        Join-Path $env:APPDATA      'Claude-3p\configLibrary'
-    )
-
-    foreach ($libraryDir in $libraryDirs) {
+    # In beide AppData-Zweige schreiben (Local und Roaming)
+    foreach ($base in @($env:LOCALAPPDATA, $env:APPDATA)) {
+        $libraryDir = Join-Path $base 'Claude-3p\configLibrary'
         if (-not (Test-Path $libraryDir)) {
             New-Item -ItemType Directory -Path $libraryDir -Force | Out-Null
         }
 
-        $metaPath   = Join-Path $libraryDir '_meta.json'
-        $configPath = Join-Path $libraryDir "$configId.json"
+        $metaPath = Join-Path $libraryDir '_meta.json'
+        [System.IO.File]::WriteAllText($metaPath, $metaJson, $utf8NoBom)
+        Write-Log "_meta.json geschrieben: $metaPath"
 
-        [System.IO.File]::WriteAllText($metaPath,   $metaJson,   $utf8NoBom)
+        $configPath = Join-Path $libraryDir "$configId.json"
         [System.IO.File]::WriteAllText($configPath, $configJson, $utf8NoBom)
-        Write-Log "configLibrary geschrieben: $libraryDir"
+        Write-Log "Config-Datei geschrieben: $configPath"
     }
 
 } catch {
